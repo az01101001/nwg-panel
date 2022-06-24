@@ -530,7 +530,7 @@ def list_color_presets(device=""):
 
 
 def get_color_preset(device=""):
-    color_preset = {}
+    code = ""
     if nwg_panel.common.commands["ddcutil"]:
         try:
             cmd = "ddcutil getvcp 14 --bus={}".format(device) if device else "ddcutil getvcp 14"
@@ -538,21 +538,20 @@ def get_color_preset(device=""):
             cp = output.split(":")[1].split(",")[0].strip()
             name = cp[:-7]
             code = cp[-5:-1]
-            color_preset[code] = name
         except:
             pass
     else:
         eprint("Couldn't get color preset, is 'ddcutil' installed?")
 
-    return color_preset
+    return code
 
 
-def set_color_preset(color_preset="", device=""):
+def set_color_preset(code, device=""):
     if nwg_panel.common.commands["ddcutil"]:
         if device:
-            subprocess.call("ddcutil setvcp 14 {} --bus={}".format(color_preset, device).split())
+            subprocess.call("ddcutil setvcp 14 {} --bus={}".format(code, device).split())
         else:
-            subprocess.call("ddcutil setvcp 14 {}".format(color_preset).split())
+            subprocess.call("ddcutil setvcp 14 {}".format(code).split())
     else:
         eprint("'ddcutil' package required")
 
