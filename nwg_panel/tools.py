@@ -480,6 +480,83 @@ def set_brightness(percent, device="", controller=""):
         eprint("Either 'light' or 'brightnessctl' or 'ddcutil' package required")
 
 
+def get_contrast(device=""):
+    contrast = 0
+    if nwg_panel.common.commands["ddcutil"]:
+        try:
+            cmd = "ddcutil getvcp 12 --bus={}".format(device) if device else "ddcutil getvcp 12"
+            output = cmd2string(cmd)
+            c = int(output.split("current value =")[1].split(",")[0])
+            contrast = int(round(float(c), 0))
+        except:
+            pass
+    else:
+        eprint("Couldn't get contrast, is 'ddcutil' installed?")
+
+    return contrast
+
+
+def set_contrast(percent, device=""):
+    if percent == 0:
+        percent = 1
+    if nwg_panel.common.commands["ddcutil"]:
+        if device:
+            subprocess.call("ddcutil setvcp 12 {} --bus={}".format(percent, device).split())
+        else:
+            subprocess.call("ddcutil setvcp 12 {}".format(percent).split())
+    else:
+        eprint("'ddcutil' package required")
+
+
+def list_color_presets(device=""):
+    color_presets = {}
+    if nwg_panel.common.commands["ddcutil"]:
+        try:
+            output = cmd2string("ddcutil capabilities")
+            if output:
+                lines = output.split("Feature: 14")[1].split("Feature:")[0].split("Values:")[1].strip().split("\n")
+                color_preset = {}
+                for line in lines:
+                    line = line.strip().split(":")
+                    code = "0x" + line[0].strip()
+                    name = line[1].strip()
+                    color_presets[code] = name
+        except Exception as e:
+            eprint(e)
+    else:
+        eprint("Couldn't list color presets, 'ddcutil' not found")
+
+    return color_presets
+
+
+def get_color_preset(device=""):
+    color_preset = {}
+    if nwg_panel.common.commands["ddcutil"]:
+        try:
+            cmd = "ddcutil getvcp 14 --bus={}".format(device) if device else "ddcutil getvcp 14"
+            output = cmd2string(cmd)
+            cp = output.split(":")[1].split(",")[0].strip()
+            name = cp[:-7]
+            code = cp[-5:-1]
+            color_preset[code] = name
+        except:
+            pass
+    else:
+        eprint("Couldn't get color preset, is 'ddcutil' installed?")
+
+    return color_preset
+
+
+def set_color_preset(color_preset="", device=""):
+    if nwg_panel.common.commands["ddcutil"]:
+        if device:
+            subprocess.call("ddcutil setvcp 14 {} --bus={}".format(color_preset, device).split())
+        else:
+            subprocess.call("ddcutil setvcp 14 {}".format(color_preset).split())
+    else:
+        eprint("'ddcutil' package required")
+
+
 def get_battery():
     percent, time, charging = 0, "", False
     success = False
