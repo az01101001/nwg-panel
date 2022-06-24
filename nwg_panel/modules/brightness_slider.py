@@ -9,7 +9,7 @@ gi.require_version('Gdk', '3.0')
 gi.require_version('GtkLayerShell', '0.1')
 from gi.repository import Gtk, Gdk, GLib, GtkLayerShell
 
-from nwg_panel.tools import check_key, get_brightness, set_brightness, update_image
+from nwg_panel.tools import check_key, get_brightness, set_brightness, get_contrast, set_contrast, get_color_preset, set_color_preset, list_color_presets, update_image
 
 
 class BrightnessSlider(Gtk.EventBox):
@@ -28,7 +28,6 @@ class BrightnessSlider(Gtk.EventBox):
             "icon-placement": "start",
             "backlight-device": "",
             "backlight-controller": "light",
-            "slider-orientation": "horizontal",
             "slider-inverted": False,
             "popup-icon-placement": "start",
             "popup-horizontal-alignment": "left",
@@ -189,14 +188,19 @@ class PopupWindow(Gtk.Window):
         eb.set_above_child(False)
 
         self.box = Gtk.Box(spacing=0)
-        if self.settings["slider-orientation"] == "vertical":
-            self.box.set_orientation(Gtk.Orientation.VERTICAL)
-            self.bri_scale = Gtk.Scale.new_with_range(orientation=Gtk.Orientation.VERTICAL, min=0, max=100, step=1)
-        elif self.settings["slider-orientation"] == "horizontal":
-            self.box.set_orientation(Gtk.Orientation.HORIZONTAL)
-            self.bri_scale = Gtk.Scale.new_with_range(orientation=Gtk.Orientation.HORIZONTAL, min=0, max=100, step=1)
-        self.bri_scale.set_inverted(self.settings["slider-inverted"])
+        self.box.set_orientation(Gtk.Orientation.VERTICAL)
 
+        eb.add(self.box)
+        self.add(eb)
+
+        # brightness
+        self.bri_box = Gtk.Box(spacing=0)
+        self.bri_box.set_orientation(Gtk.Orientation.HORIZONTAL)
+
+        self.bri_scale = Gtk.Scale.new_with_range(orientation=Gtk.Orientation.HORIZONTAL, min=0, max=100, step=1)
+        self.bri_scale.set_tooltip_text("brightness")
+        self.bri_scale.set_has_tooltip(False)
+        self.bri_scale.set_inverted(self.settings["slider-inverted"])
         if self.settings["backlight-controller"] == "ddcutil":
             self.bri_scale_handler = self.bri_scale.connect("value-changed", self.on_value_changed)
             self.bri_scale.connect("button-release-event", self.on_button_release)
@@ -208,9 +212,35 @@ class PopupWindow(Gtk.Window):
 
         self.bri_icon_name = "view-refresh-symbolic"
         self.bri_image = Gtk.Image.new_from_icon_name(self.bri_icon_name, Gtk.IconSize.MENU)
+
+        if self.settings["backlight-controller"] == "ddcutil":
+            # contrast
+            self.con_box = Gtk.Box(spacing=0)
+            self.con_box.set_orientation(Gtk.Orientation.HORIZONTAL)
+
+            self.con_scale = Gtk.Scale.new_with_range(orientation=Gtk.Orientation.HORIZONTAL, min=0, max=100, step=1)
+            self.con_scale.set_tooltip_text("contrast")
+            self.con_scale.set_has_tooltip(False)
+            self.con_scale.set_inverted(self.settings["slider-inverted"])
             
-        eb.add(self.box)
-        self.add(eb)
+            self.con_scale_handler = self.con_scale.connect("value-changed", self.on_value_changed)
+            self.con_scale.connect("button-release-event", self.on_button_release)
+            
+            self.con_scale.add_events(Gdk.EventMask.SCROLL_MASK)
+            self.con_scale.connect('scroll-event', self.on_scroll)
+
+            self.con_icon_name = "view-refresh-symbolic"
+            self.con_image = Gtk.Image.new_from_icon_name(self.bri_icon_name, Gtk.IconSize.MENU) # TODO contrast icons
+            
+            # pause ddcutil and color presets
+            self.pause_button = Gtk.CheckButton.new_with_label(label="Pause ddcutil") # TODO
+
+            self.color_presets_box = Gtk.ComboBoxText.new()
+            self.color_presets_box.connect("changed", self.on_changed)
+
+            self.color_presets = list_color_presets(device=self.settings["backlight-device"])
+            for code, name in self.color_presets.items():
+                self.color_presets_box.append(id=code, text=name)
 
         if settings["popup-vertical-alignment"] == "top":
             GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.TOP, True)
@@ -230,16 +260,30 @@ class PopupWindow(Gtk.Window):
 
         self.build_box()
 
+        self.refresh()
         Gdk.threads_add_timeout(GLib.PRIORITY_LOW, 500, self.refresh)
     
     def build_box(self):
+        # brightness
         if self.settings["popup-icon-placement"] == "start":
-            self.box.pack_start(self.bri_image, False, False, 6)
-        
-        self.box.pack_start(self.bri_scale, True, True, 5)
-        
+            self.bri_box.pack_start(self.bri_image, False, False, 6)
+        self.bri_box.pack_start(self.bri_scale, True, True, 5)
         if self.settings["popup-icon-placement"] == "end":
-            self.box.pack_start(self.bri_image, False, False, 6)
+            self.bri_box.pack_start(self.bri_image, False, False, 6)
+        self.box.pack_start(self.bri_box, True, True, 5)
+
+        if self.settings["backlight-controller"] == "ddcutil":
+            # contrast
+            if self.settings["popup-icon-placement"] == "start":
+                self.con_box.pack_start(self.con_image, False, False, 6)
+            self.con_box.pack_start(self.con_scale, True, True, 5)
+            if self.settings["popup-icon-placement"] == "end":
+                self.con_box.pack_start(self.con_image, False, False, 6)
+            self.box.pack_start(self.con_box, True, True, 5)
+
+            # pause ddcutil and color presets
+            self.box.pack_start(self.pause_button, True, True, 5)
+            self.box.pack_start(self.color_presets_box, True, True, 5)
 
     def refresh(self, *args):
         if self.get_visible():
@@ -248,7 +292,10 @@ class PopupWindow(Gtk.Window):
             if self.parent.bri_icon_name != self.bri_icon_name:
                 update_image(self.bri_image, self.parent.bri_icon_name, self.icon_size, self.icons_path)
                 self.bri_icon_name = self.parent.bri_icon_name
-
+            
+            if self.settings["backlight-controller"] == "ddcutil":
+                self.update_contrast()
+                self.update_color_preset()
         else:
             with self.bri_scale.handler_block(self.bri_scale_handler):
                 self.bri_scale.set_value(self.parent.bri_value)
@@ -282,18 +329,41 @@ class PopupWindow(Gtk.Window):
 
     def on_button_release(self, scale, event):
         if self.value_changed:
-            self.set_bri(scale)
+            if scale.get_tooltip_text() == "brightness":
+                self.set_bri(self.bri_scale)
+            elif scale.get_tooltip_text() == "contrast":
+                set_contrast(int(self.con_scale.get_value()), device=self.settings["backlight-device"])
             self.value_changed = False
 
-    def on_value_changed(self, *args):
+    def on_value_changed(self, scale):
         if self.scrolled:
-            self.set_bri(self.bri_scale)
+            if scale.get_tooltip_text() == "brightness":
+                self.set_bri(self.bri_scale)
+            elif scale.get_tooltip_text() == "contrast":
+                set_contrast(int(self.con_scale.get_value()), device=self.settings["backlight-device"])
             self.scrolled = False
         else:
             self.value_changed = True
 
     def on_scroll(self, w, event):
         self.scrolled = True
+
+    def on_changed(self, w):
+        code = w.get_active_id()
+        if self.color_presets.get(code):
+            set_color_preset(code, device=self.settings["backlight-device"])
+
+    def update_color_preset(self):
+        code = get_color_preset(device=self.settings["backlight-device"])
+        self.color_presets_box.set_active_id(code)
+
+    def update_contrast(self):
+        contrast = get_contrast(device=self.settings["backlight-device"])
+        self.con_scale.set_value(contrast)
+
+        # TODO contrast icons, change func
+        con_icon_name = bri_icon_name(int(self.con_scale.get_value()))
+        update_image(self.con_image, con_icon_name, self.icon_size, self.icons_path)
 
 def bri_icon_name(value):
     icon_name = "display-brightness-low-symbolic"
