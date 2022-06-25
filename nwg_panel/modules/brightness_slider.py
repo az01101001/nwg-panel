@@ -307,8 +307,9 @@ class PopupWindow(Gtk.Window):
                 update_image(self.bri_image, self.parent.bri_icon_name, self.icon_size, self.icons_path)
                 self.bri_icon_name = self.parent.bri_icon_name
             
-            if self.settings["backlight-controller"] == "ddcutil":
-                self.con_scale.set_value(self.parent.con_value)
+            if self.settings["backlight-controller"] == "ddcutil" and not self.pause_button.get_active():
+                if not self.value_changed:
+                    self.con_scale.set_value(self.parent.con_value)
 
                 # TODO contrast icons, change func
                 con_icon_name = bri_icon_name(int(self.con_scale.get_value()))
@@ -350,17 +351,17 @@ class PopupWindow(Gtk.Window):
     def on_button_release(self, scale, event):
         if self.value_changed:
             if scale.get_tooltip_text() == "brightness":
-                self.set_bri(self.bri_scale)
-            elif scale.get_tooltip_text() == "contrast" and not self.pause_button.get_active():
-                set_contrast(int(self.con_scale.get_value()), device=self.settings["backlight-device"])
+                self.set_bri(scale)
+            elif scale.get_tooltip_text() == "contrast":
+                self.set_con(scale)
             self.value_changed = False
 
     def on_value_changed(self, scale):
         if self.scrolled:
             if scale.get_tooltip_text() == "brightness":
-                self.set_bri(self.bri_scale)
-            elif scale.get_tooltip_text() == "contrast" and not self.pause_button.get_active():
-                set_contrast(int(self.con_scale.get_value()), device=self.settings["backlight-device"])
+                self.set_bri(scale)
+            elif scale.get_tooltip_text() == "contrast":
+                self.set_con(scale)
             self.scrolled = False
         else:
             self.value_changed = True
@@ -369,16 +370,24 @@ class PopupWindow(Gtk.Window):
         self.scrolled = True
 
     def on_changed(self, w):
-        code = w.get_active_id()
-        if code != self.parent.cp_code and self.color_presets.get(code) and not self.pause_button.get_active():
-            set_color_preset(code, device=self.settings["backlight-device"])
-        self.parent.cp_code = code
+        self.set_cp(w)
 
     def on_toggled(self, w): # TODO can crash
         if not w.get_active():
             self.set_bri(self.bri_scale)
-            set_contrast(int(self.con_scale.get_value()), device=self.settings["backlight-device"])
-            set_color_preset(self.parent.cp_code, device=self.settings["backlight-device"])
+            self.set_con(self.con_scale)
+            self.set_cp(self.color_presets_box)
+    
+    def set_con(self, slider):
+        self.parent.con_value = int(slider.get_value())
+        if not self.pause_button.get_active():
+            set_contrast(self.parent.con_value, device=self.settings["backlight-device"])
+
+    def set_cp(self, w):
+        code = w.get_active_id()
+        if self.parent.cp_code != code and self.color_presets.get(code) and not self.pause_button.get_active():
+            set_color_preset(code, device=self.settings["backlight-device"])
+            self.parent.cp_code = code
 
 def bri_icon_name(value):
     icon_name = "display-brightness-low-symbolic"
