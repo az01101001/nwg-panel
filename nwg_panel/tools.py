@@ -441,13 +441,16 @@ def get_brightness(device="", controller=""):
         except:
             pass
     elif nwg_panel.common.commands["ddcutil"] and controller == "ddcutil":
+        cmd = "ddcutil getvcp 10 --bus={} --terse".format(device) if device else "ddcutil getvcp 10 --terse"
+        cmd = cmd.split()
+
         try:
-            cmd = "ddcutil getvcp 10 --bus={}".format(device) if device else "ddcutil getvcp 10"
-            output = cmd2string(cmd)
-            b = int(output.split("current value =")[1].split(",")[0])
-            brightness = int(round(float(b), 0))
+            output = subprocess.run(cmd, capture_output=True, check=True, text=True)
         except:
-            pass
+            brightness = -1
+        else:
+            output = output.stdout.strip()
+            brightness = int(output.split()[3])
     else:
         eprint("Couldn't get brightness, is 'light' or 'brightnessctl' or 'ddcutil' installed?")
 
@@ -473,9 +476,19 @@ def set_brightness(percent, device="", controller=""):
                             stderr=subprocess.STDOUT)
     elif nwg_panel.common.commands["ddcutil"] and controller == "ddcutil":
         if device:
-            subprocess.call("ddcutil setvcp 10 {} --bus={}".format(percent, device).split())
+            cmd = "ddcutil setvcp 10 {} --bus={}".format(percent, device)
         else:
-            subprocess.call("ddcutil setvcp 10 {}".format(percent).split())
+            cmd = "ddcutil setvcp 10 {}".format(percent)
+        cmd = cmd.split()
+        
+        for _ in range(5):
+            try:
+                subprocess.run(cmd, capture_output=True, check=True, text=True)
+            except:
+                #time.sleep(0.1)
+                pass
+            else:
+                break
     else:
         eprint("Either 'light' or 'brightnessctl' or 'ddcutil' package required")
 
@@ -483,13 +496,16 @@ def set_brightness(percent, device="", controller=""):
 def get_contrast(device=""):
     contrast = 0
     if nwg_panel.common.commands["ddcutil"]:
+        cmd = "ddcutil getvcp 12 --bus={} --terse".format(device) if device else "ddcutil getvcp 12 --terse"
+        cmd = cmd.split()
+
         try:
-            cmd = "ddcutil getvcp 12 --bus={}".format(device) if device else "ddcutil getvcp 12"
-            output = cmd2string(cmd)
-            c = int(output.split("current value =")[1].split(",")[0])
-            contrast = int(round(float(c), 0))
+            output = subprocess.run(cmd, capture_output=True, check=True, text=True)
         except:
-            pass
+            contrast = -1
+        else:
+            output = output.stdout.strip()
+            contrast = int(output.split()[3])
     else:
         eprint("Couldn't get contrast, is 'ddcutil' installed?")
 
@@ -501,9 +517,18 @@ def set_contrast(percent, device=""):
         percent = 1
     if nwg_panel.common.commands["ddcutil"]:
         if device:
-            subprocess.call("ddcutil setvcp 12 {} --bus={}".format(percent, device).split())
+            cmd = "ddcutil setvcp 12 {} --bus={}".format(percent, device)
         else:
-            subprocess.call("ddcutil setvcp 12 {}".format(percent).split())
+            cmd = "ddcutil setvcp 12 {}".format(percent)
+        cmd = cmd.split()
+        
+        for _ in range(5):
+            try:
+                subprocess.run(cmd, capture_output=True, check=True, text=True)
+            except:
+                pass
+            else:
+                break
     else:
         eprint("'ddcutil' package required")
 
@@ -532,14 +557,16 @@ def list_color_presets(device=""):
 def get_color_preset(device=""):
     code = ""
     if nwg_panel.common.commands["ddcutil"]:
+        cmd = "ddcutil getvcp 14 --bus={} --terse".format(device) if device else "ddcutil getvcp 14 --terse"
+        cmd = cmd.split()
+
         try:
-            cmd = "ddcutil getvcp 14 --bus={}".format(device) if device else "ddcutil getvcp 14"
-            output = cmd2string(cmd)
-            cp = output.split(":")[1].split(",")[0].strip()
-            name = cp[:-7]
-            code = cp[-5:-1]
+            output = subprocess.run(cmd, capture_output=True, check=True, text=True)
         except:
-            pass
+            code = ""
+        else:
+            output = output.stdout.strip()
+            code = "0" + output.split()[-1]
     else:
         eprint("Couldn't get color preset, is 'ddcutil' installed?")
 
@@ -549,9 +576,18 @@ def get_color_preset(device=""):
 def set_color_preset(code, device=""):
     if nwg_panel.common.commands["ddcutil"]:
         if device:
-            subprocess.call("ddcutil setvcp 14 {} --bus={}".format(code, device).split())
+            cmd = "ddcutil setvcp 14 {} --bus={}".format(code, device)
         else:
-            subprocess.call("ddcutil setvcp 14 {}".format(code).split())
+            cmd = "ddcutil setvcp 14 {}".format(code)
+        cmd = cmd.split()
+        
+        for _ in range(5):
+            try:
+                subprocess.run(cmd, capture_output=True, check=True, text=True)
+            except:
+                pass
+            else:
+                break
     else:
         eprint("'ddcutil' package required")
 

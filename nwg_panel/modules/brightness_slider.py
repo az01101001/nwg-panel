@@ -10,7 +10,8 @@ gi.require_version('GtkLayerShell', '0.1')
 from gi.repository import Gtk, Gdk, GLib, GtkLayerShell
 
 from nwg_panel.tools import check_key, get_brightness, set_brightness, get_contrast, set_contrast, get_color_preset, set_color_preset, list_color_presets, update_image
-
+from collections import OrderedDict
+import time
 
 class BrightnessSlider(Gtk.EventBox):
     def __init__(self, settings, icons_path=""):
@@ -75,8 +76,10 @@ class BrightnessSlider(Gtk.EventBox):
 
         self.build_box()
 
+        self.ddcutil_queue = OrderedDict()
+
         self.refresh()
-        #Gdk.threads_add_timeout_seconds(GLib.PRIORITY_LOW, settings["interval"], self.refresh)
+        Gdk.threads_add_timeout_seconds(GLib.PRIORITY_LOW, settings["interval"], self.refresh)
 
     def build_box(self):
         if self.settings["icon-placement"] == "start":
@@ -94,24 +97,36 @@ class BrightnessSlider(Gtk.EventBox):
         thread.start()
 
         return True
-
+    
     def refresh_output(self):
         try:
-            GLib.idle_add(self.update_brightness)
+            if not self.ddcutil_queue:
+                self.get_bri()
+                GLib.idle_add(self.update_brightness)
 
-            if self.settings["backlight-controller"] == "ddcutil":
-                GLib.idle_add(self.update_contrast)
-                GLib.idle_add(self.update_color_preset)
+                if self.settings["backlight-controller"] == "ddcutil":
+                    self.get_con()
+                    self.get_cp()
+            else:
+                vcp, val = self.ddcutil_queue.popitem(last=False)
+                if vcp == 10:
+                    self.bri_value = val
+                    set_brightness(val, device=self.settings["backlight-device"], controller=self.settings["backlight-controller"])
+                    self.popup_window.dragging = False
+                elif vcp == 12:
+                    self.con_value = val
+                    set_contrast(val, device=self.settings["backlight-device"])
+                    self.popup_window.dragging = False
+                elif vcp == 14:
+                    self.cp_code = val
+                    set_color_preset(val, device=self.settings["backlight-device"])
+                    self.popup_window.cp_changed = False
         except Exception as e:
             print(e)
 
         return False
 
-    def update_brightness(self, get=True):
-        if get and not self.popup_window.pause_button.get_active():
-            self.bri_value = get_brightness(device=self.settings["backlight-device"],
-                                            controller=self.settings["backlight-controller"])
-        
+    def update_brightness(self):
         icon_name = bri_icon_name(self.bri_value)
 
         if icon_name != self.bri_icon_name:
@@ -121,13 +136,23 @@ class BrightnessSlider(Gtk.EventBox):
         if self.bri_label:
             self.bri_label.set_text("{}%".format(self.bri_value))
 
-    def update_contrast(self):
+    def get_bri(self):
         if not self.popup_window.pause_button.get_active():
-            self.con_value = get_contrast(device=self.settings["backlight-device"])
+            bri_value = get_brightness(device=self.settings["backlight-device"], controller=self.settings["backlight-controller"])
+            if bri_value != -1: # make sure ddcutil getvcp doesnt return an error
+                self.bri_value = bri_value
 
-    def update_color_preset(self):
+    def get_con(self):
         if not self.popup_window.pause_button.get_active():
-            self.cp_code = get_color_preset(device=self.settings["backlight-device"])
+            con_value = get_contrast(device=self.settings["backlight-device"])
+            if con_value != -1: # make sure ddcutil getvcp doesnt return an error
+                self.con_value = con_value
+
+    def get_cp(self):
+        if not self.popup_window.pause_button.get_active():
+            cp_code = get_color_preset(device=self.settings["backlight-device"])
+            if cp_code != "": # make sure ddcutil getvcp doesnt return an error
+                self.cp_code = cp_code
     
     def on_button_press(self, w, event):
         if not self.popup_window.get_visible():
@@ -146,14 +171,18 @@ class BrightnessSlider(Gtk.EventBox):
         self.bri_value = min(self.bri_value, 100)
         self.bri_value = max(self.bri_value, 0)
 
-        self.update_brightness(get=False)
+        self.update_brightness()
 
         if self.popup_window.get_visible():
             self.popup_window.bri_scale.set_value(self.bri_value)
-
-        if not self.popup_window.pause_button.get_active():
+        
+        if self.settings["backlight-controller"] == "ddcutil":
+            if not self.popup_window.pause_button.get_active():
+                self.ddcutil_queue[10] = self.bri_value
+                self.ddcutil_queue.move_to_end(10)
+        else:
             set_brightness(self.bri_value, device=self.settings["backlight-device"],
-                        controller=self.settings["backlight-controller"])
+                           controller=self.settings["backlight-controller"])
 
         return False
 
@@ -190,6 +219,8 @@ class PopupWindow(Gtk.Window):
         self.src_tag = 0
         self.value_changed = False
         self.scrolled = False
+        self.dragging = False
+        self.cp_changed = False
 
         self.set_property("name", self.settings["css-name"])
         
@@ -301,21 +332,22 @@ class PopupWindow(Gtk.Window):
 
     def refresh(self, *args):
         if self.get_visible():
-            if not self.value_changed:
+            if not self.value_changed and not self.dragging:
                 self.bri_scale.set_value(self.parent.bri_value)
             if self.parent.bri_icon_name != self.bri_icon_name:
                 update_image(self.bri_image, self.parent.bri_icon_name, self.icon_size, self.icons_path)
                 self.bri_icon_name = self.parent.bri_icon_name
             
             if self.settings["backlight-controller"] == "ddcutil" and not self.pause_button.get_active():
-                if not self.value_changed:
+                if not self.value_changed and not self.dragging:
                     self.con_scale.set_value(self.parent.con_value)
 
                 # TODO contrast icons, change func
                 con_icon_name = bri_icon_name(int(self.con_scale.get_value()))
                 update_image(self.con_image, con_icon_name, self.icon_size, self.icons_path)
 
-                self.color_presets_box.set_active_id(self.parent.cp_code)
+                if not self.cp_changed:
+                    self.color_presets_box.set_active_id(self.parent.cp_code)
         else:
             with self.bri_scale.handler_block(self.bri_scale_handler):
                 self.bri_scale.set_value(self.parent.bri_value)
@@ -342,11 +374,17 @@ class PopupWindow(Gtk.Window):
         self.refresh()
 
     def set_bri(self, slider):
-        self.parent.bri_value = int(slider.get_value())
-        self.parent.update_brightness(get=False)
-        if not self.pause_button.get_active():
+        #self.parent.bri_value = int(slider.get_value())
+        #self.parent.update_brightness()
+        if self.settings["backlight-controller"] == "ddcutil":
+            if not self.pause_button.get_active():
+                self.parent.ddcutil_queue[10] = int(slider.get_value())
+                self.parent.ddcutil_queue.move_to_end(10)
+        else:
+            self.parent.bri_value = int(slider.get_value())
+            self.parent.update_brightness()
             set_brightness(self.parent.bri_value, device=self.settings["backlight-device"],
-                        controller=self.settings["backlight-controller"])
+                           controller=self.settings["backlight-controller"])
 
     def on_button_release(self, scale, event):
         if self.value_changed:
@@ -364,13 +402,16 @@ class PopupWindow(Gtk.Window):
                 self.set_con(scale)
             self.scrolled = False
         else:
+            #print(scale.get_value())
             self.value_changed = True
+            self.dragging = True
 
     def on_scroll(self, w, event):
         self.scrolled = True
 
     def on_changed(self, w):
         self.set_cp(w)
+        self.cp_changed = True
 
     def on_toggled(self, w): # TODO can crash
         if not w.get_active():
@@ -379,15 +420,18 @@ class PopupWindow(Gtk.Window):
             self.set_cp(self.color_presets_box)
     
     def set_con(self, slider):
-        self.parent.con_value = int(slider.get_value())
+        #self.parent.con_value = int(slider.get_value())
         if not self.pause_button.get_active():
-            set_contrast(self.parent.con_value, device=self.settings["backlight-device"])
-
+            self.parent.ddcutil_queue[12] = int(slider.get_value())
+            self.parent.ddcutil_queue.move_to_end(12)
+            
     def set_cp(self, w):
         code = w.get_active_id()
         if self.parent.cp_code != code and self.color_presets.get(code) and not self.pause_button.get_active():
-            set_color_preset(code, device=self.settings["backlight-device"])
-            self.parent.cp_code = code
+            self.parent.ddcutil_queue[14] = code
+            self.parent.ddcutil_queue.move_to_end(14)
+
+            #self.parent.cp_code = code
 
 def bri_icon_name(value):
     icon_name = "display-brightness-low-symbolic"
